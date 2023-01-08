@@ -1,0 +1,231 @@
+{
+  "appConfig": {},
+  "disabled": false,
+  "expectedArtifacts": [
+    {
+      "defaultArtifact": {
+        "customKind": true,
+        "id": "5f86f218-a298-4307-83c2-fc1bd1e9bdad",
+        "location": "artifactory",
+        "name": "dep-svc-manifests",
+        "reference": "https://ci-artifacts.devops.fds.com/artifactory/helm-local/oms/oms-generic/oms-generic-1.58.0.tgz",
+        "type": "http/file",
+        "version": "1.58.0"
+      },
+      "displayName": "dep-svc-manifests",
+      "id": "9b27fb8f-0e77-41cf-bd88-46f08aed4f2f",
+      "matchArtifact": {
+        "customKind": true,
+        "id": "e5557ffd-37e0-4316-960f-6d6fdc807c06",
+        "location": "artifactory",
+        "name": "dep-svc-manifests",
+        "reference": "https://ci-artifacts.devops.fds.com/artifactory/helm-local/oms/oms-generic/oms-generic-1.58.0.tgz",
+        "type": "http/file",
+        "version": "1.58.0"
+      },
+      "useDefaultArtifact": true,
+      "usePriorArtifact": false
+    },
+    {
+      "defaultArtifact": {
+        "customKind": true,
+        "id": "0c25dff8-af2d-44e5-a61e-ba467ca7d7b4"
+      },
+      "displayName": "gcr.io/mtech-scm-platform/orderplatform/allocateorder ",
+      "id": "341136c8-7f74-4a5c-802b-25c8eb2c4791",
+      "matchArtifact": {
+        "id": "9ec65ece-7dbb-4a7b-8713-889a4be88eb9",
+        "name": "gcr.io/mtech-scm-platform/mom/orderplatform/allocateorder",
+        "type": "docker/image"
+      },
+      "useDefaultArtifact": false,
+      "usePriorArtifact": true
+    },
+    {
+      "defaultArtifact": {
+        "id": "d42c73fd-0cb4-4f58-af4f-294db49f659a",
+        "reference": "https://code.devops.fds.com/api/v4/projects/scm%2FCD%2Fhelm-values%2Foms-helm-values/repository/files/dev%2Fallocateorder.yaml/raw",
+        "type": "gitlab/file",
+        "version": "master"
+      },
+      "displayName": "https://code.devops.fds.com/api/v4/projects/scm%2FCD%2Fhelm-values%2Foms-helm-values/repository/files/dev%2Fallocateorder.yaml/raw",
+      "id": "5fa423b2-518d-48d4-a471-4532de464fc9",
+      "matchArtifact": {
+        "id": "d15f7087-5669-4e02-affe-0ccae7074bb9",
+        "name": "https://code.devops.fds.com/api/v4/projects/scm%2FCD%2Fhelm-values%2Foms-helm-values/repository/files/dev%2Fallocateorder.yaml/raw",
+        "type": "gitlab/file"
+      },
+      "useDefaultArtifact": true,
+      "usePriorArtifact": false
+    }
+  ],
+  "keepWaitingPipelines": false,
+  "lastModifiedBy": "bh16382",
+  "limitConcurrent": true,
+  "parameterConfig": [
+    {
+      "default": "dev",
+      "description": "Namespace for the application",
+      "label": "Namespace",
+      "name": "namespace",
+      "required": true
+    },
+    {
+      "default": "allocateorder",
+      "description": "The name of the configmap that contains the properties file such as application.properties",
+      "label": "App Config Configmap Name",
+      "name": "app_configmap_name",
+      "required": true
+    }
+  ],
+  "roles": [
+    "mtech-orderplatform-re"
+  ],
+  "stages": [
+    {
+      "expectedArtifacts": [
+        {
+          "defaultArtifact": {},
+          "id": "c48df907-c2b7-4074-8c73-4df5b1e39afb",
+          "matchArtifact": {
+            "kind": "base64",
+            "name": "allocateorder",
+            "type": "embedded/base64"
+          },
+          "useDefaultArtifact": false
+        }
+      ],
+      "inputArtifacts": [
+        {
+          "account": "ci-artifacts-artifactory",
+          "id": "9b27fb8f-0e77-41cf-bd88-46f08aed4f2f"
+        },
+        {
+          "account": "code.devops.fds.com",
+          "id": "5fa423b2-518d-48d4-a471-4532de464fc9"
+        }
+      ],
+      "name": "Bake Deployment Manifests",
+      "namespace": "${parameters.namespace}",
+      "outputName": "allocateorder",
+      "overrides": {},
+      "refId": "1",
+      "requisiteStageRefIds": [],
+      "templateRenderer": "HELM2",
+      "type": "bakeManifest"
+    },
+    {
+      "continuePipeline": false,
+      "failPipeline": true,
+      "job": "scm/job/UnifiedSpinnakerHelper",
+      "master": "flex-ci",
+      "name": "Prepare application configuration",
+      "parameters": {
+        "application": "allocateorder",
+        "config_url": "https://ci-artifacts.devops.fds.com/public/com/macys/uop/allocateorder-config/${trigger['tag']}/allocateorder-config-${trigger['tag']}.tar",
+        "environment": "dev",
+        "has_overrides": "true",
+        "properties_repo": "git@code.devops.fds.com:MOM/OrderPlatform/properties.git",
+        "property_file": "application.properties"
+      },
+      "refId": "2",
+      "requisiteStageRefIds": [],
+      "type": "jenkins"
+    },
+    {
+      "method": "GET",
+      "name": "Get Properties",
+      "refId": "3",
+      "requisiteStageRefIds": [
+        "2"
+      ],
+      "statusUrlResolution": "getMethod",
+      "type": "webhook",
+      "url": "${#stage(\"Prepare application configuration\")[\"context\"][\"buildInfo\"][\"url\"]}/artifact/application.properties"
+    },
+    {
+      "account": "wms-oms-nonprod--order-np-e4-01",
+      "app": "allocateorder",
+      "cloudProvider": "kubernetes",
+      "manifestArtifactAccount": "ci-artifacts-artifactory",
+      "manifests": [
+        {
+          "apiVersion": "v1",
+          "data": {
+            "application.properties": "${#stage(\"Get Properties\")[\"context\"][\"webhook\"][\"body\"]}"
+          },
+          "kind": "ConfigMap",
+          "metadata": {
+            "name": "${parameters.app_configmap_name}",
+            "namespace": "${parameters.namespace}"
+          }
+        }
+      ],
+      "mode": "static",
+      "moniker": {
+        "app": "allocateorder"
+      },
+      "name": "Deploy Application allocateorder Configuration",
+      "refId": "4",
+      "relationships": {
+        "loadBalancers": [],
+        "securityGroups": []
+      },
+      "requisiteStageRefIds": [
+        "3"
+      ],
+      "skipExpressionEvaluation": false,
+      "source": "text",
+      "stageEnabled": {
+        "type": "expression"
+      },
+      "trafficManagement": {
+        "enabled": false,
+        "options": {
+          "enableTraffic": false
+        }
+      },
+      "type": "deployManifest"
+    },
+    {
+      "account": "wms-oms-nonprod--order-np-e4-01",
+      "cloudProvider": "kubernetes",
+      "manifestArtifactAccount": "embedded-artifact",
+      "manifestArtifactId": "c48df907-c2b7-4074-8c73-4df5b1e39afb",
+      "moniker": {
+        "app": "allocateorder"
+      },
+      "name": "Deploy",
+      "refId": "5",
+      "relationships": {
+        "loadBalancers": [],
+        "securityGroups": []
+      },
+      "requisiteStageRefIds": [
+        "4",
+        "1"
+      ],
+      "skipExpressionEvaluation": false,
+      "source": "artifact",
+      "trafficManagement": {
+        "enabled": false,
+        "options": {
+          "enableTraffic": false
+        }
+      },
+      "type": "deployManifest"
+    }
+  ],
+  "triggers": [
+    {
+      "account": "macys-gcr-registry",
+      "cronExpression": "0 0 10 ? * MON-FRI *",
+      "enabled": false,
+      "organization": "mtech-scm-platform/mom/orderplatform",
+      "registry": "gcr.io",
+      "repository": "mtech-scm-platform/mom/orderplatform/allocateorder",
+      "type": "docker"
+    }
+  ],
+  "updateTs": "1658247499565"
+}
