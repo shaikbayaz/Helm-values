@@ -1,0 +1,23 @@
+####### to check deployed images on the cluster #####
+kubectl get pods -n dev
+
+kubectl describe deployments -n dev | grep image 
+kubectl describe deployments -n qa | findstr Image
+kubectl get apiservices |findstr metrics
+
+########## To get the secrets 
+
+kubectl exec -it orderprocessoruop-546fdc869c-k7v56 -n dev -- sh
+
+
+kubectl describe deployments -n uat | grep SecretName | sort -u
+
+#######
+cert has been added in GKE, try to access mount path from the application 
+- mountPath: /usr/local/share/ca-certificates
+name: pcs-cert-path
+
+
+kubectl get secrets -n dev
+
+kubectl delete secret pflapikey-secret -n dev
