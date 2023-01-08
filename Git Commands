@@ -1,0 +1,36 @@
+########### TO reset pass - ###########
+git config --global credential.helper wincred
+
+### Commits behind process ###
+
+Microsoft Windows [Version 10.0.18363.1441]
+(c) 2019 Microsoft Corporation. All rights reserved.
+C:\Users\891898\Downloads\bigquery>git clone https://code.devops.fds.com/scm/terraform.git
+Cloning into 'terraform'...
+remote: Enumerating objects: 95, done.
+remote: Counting objects: 100% (95/95), done.
+remote: Compressing objects: 100% (72/72), done.
+remote: Total 41911 (delta 42), reused 48 (delta 19), pack-reused 41816
+Receiving objects: 100% (41911/41911), 42.45 MiB | 66.00 KiB/s, done.
+Resolving deltas: 100% (24359/24359), done.
+Updating files: 100% (700/700), done.
+C:\Users\891898\Downloads\bigquery>cd terraform
+C:\Users\891898\Downloads\bigquery\terraform>git checkout FEATURE/USS33
+Switched to a new branch 'FEATURE/USS33'
+Branch 'FEATURE/USS33' set up to track remote branch 'FEATURE/USS33' from 'origin'.
+C:\Users\891898\Downloads\bigquery\terraform>git pull origin master
+From https://code.devops.fds.com/scm/terraform
+* branch master -> FETCH_HEAD
+Merge made by the 'recursive' strategy.
+commits/origin_master_commit_sha_2021-04-20_03-19-34_PM | 1 +
+tf_configs/mtech-oms/firestore.yaml | 2 +-
+tf_generated/mtech-orderplatform-perf/firestore/main.tf | 2 +-
+3 files changed, 3 insertions(+), 2 deletions(-)
+create mode 100644 commits/origin_master_commit_sha_2021-04-20_03-19-34_PM
+C:\Users\891898\Downloads\bigquery\terraform>git push
+Enumerating objects: 16, done.
+Counting objects: 100% (16/16), done.
+Delta compression using up to 8 threads
+Compressing objects: 100% (6/6), done.
+Writing objects: 100% (6/6), 717 bytes | 179.00 KiB/s, done.
+Total 6 (delta 4), reused 0 (delta 0), pack-reused 0
