@@ -1,0 +1,69 @@
+#####  Connect to a VM (Instance) ######
+gcloud compute ssh uop-dev-es-vm --project mtech-wms-oms-nonprod --zone=us-east4-a --internal-ip --quiet
+
+gcloud compute ssh uop-qa-es-vm-2 --project mtech-orderplatform-perf --zone=us-east1-b --internal-ip
+
+
+### Deletion of records from the spanner DB for a particular file 
+
+gcloud spanner databases execute-sql order_db_perf --instance=orderplatform-perf --enable-partitioned-dml --sql='Delete FROM OrderError where TRUE;'
+
+gcloud spanner databases execute-sql order_db_perf --instance=orderplatform-perf --enable-partitioned-dml --sql="delete FROM EventState where lastUpdatedTs < '2022-06-01'"
+
+
+### Spanner query to get deployed tags
+select distinct(tag_version) from change_logs order by tag_version desc
+select count(*) from change_logs where tag_version = "3.127.0"
+
+################################################################
+gcloud scheduler jobs list 
+
+gcloud scheduler jobs list | grep _qa | wc -1
+
+
+
+kubectl get pods -n dev
+
+kubectl describe deployments -n qa | findstr Image
+
+
+
+
+############## this command is useful if you want to see the latest deployments that happened in any cluster
+
+it excludes inactive revisions and sorts the latest revisions by age
+
+kubectl get replicaset -n uat --sort-by=.metadata.creationTimestamp | grep -v "0         0         0"
+
+#############  GCloud SDK    #################
+
+kubectl apply -f c:\users\895567\sa_chaos.yaml
+
+########## configure the project -
+
+gcloud config set project mtech-wms-oms-poc
+gcloud config list
+
+gcloud init --skip-diagnostics
+
+
+
+############### To provide security file -
+
+gcloud auth activate-service-account SERVICE_ACCOUNT@DOMAIN.COM --key-file=/path/key.json --project=PROJECT_ID
+
+If we were in the C Drive - can directly access the SA ---- C:\Program Files (x86)\Google\Cloud SDK>cd C:\SA
+gcloud auth activate-service-account mtech-oms-composer-qa@mtech-orderplatform-perf.iam.gserviceaccount.com --key-file=composer.json --project=mtech-orderplatform-perf
+
+ ################ To change back to SDK login 
+gcloud auth login
+gcloud auth list 
+
+################ To load data one BQ table to another #############
+
+bq load --source_format=NEWLINE_DELIMITED_JSON raw_ful_qa.op_ordevents gs://mtech-wms-oms-nonprod-db2-bq/test/op_ordevents.json
+
+
+############ Dataflow Creation ################
+
+gcloud beta dataflow jobs run streamorderevents_dev-1 --gcs-location=gs://mtech-wms-oms-nonprod-dataflow/uopdatastream-df/templates/dev/latest/uopdatastream-df-dev --project mtech-wms-oms-nonprod --worker-machine-type n1-standard-1 --num-workers 1 --max-workers 3 --region us-east4 --worker-zone us-east4-a --subnetwork regions/us-east1/subnetworks/local-oms-perf-dataflow --staging-location gs://mtech-wms-oms-nonprod-dataflow/uopdatastream-df/staging --disable-public-ips --parameters=autoscalingAlgorithm=THROUGHPUT_BASED --enable-streaming-engine
