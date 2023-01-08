@@ -1,0 +1,494 @@
+import hudson.AbortException
+// include https://code.devops.fds.com/devops/jenkins_pipeline_libraries/ libraries
+@Library('DevOps') _
+
+pipeline {
+    agent {
+        label 'scm-n1-s4'
+    }
+
+    options {
+        timestamps()
+    }
+     environment {
+ 
+        GCLOUD_PATH = tool name: 'google-cloud-sdk-262.0.0', type: 'com.cloudbees.jenkins.plugins.customtools.CustomTool'
+ 
+        PATH = "${GCLOUD_PATH}/google-cloud-sdk/bin:${env.PATH}"
+ 
+    }
+    tools {
+        jdk 'OPENJDK11'
+        maven 'MAVEN_3.3.9'
+    }
+
+    triggers {
+        gitlab(
+            triggerOnPush: true,
+            triggerOnMergeRequest: false,
+            triggerOpenMergeRequestOnPush: "never",
+            triggerOnNoteRequest: false,
+            noteRegex: "Jenkins please retry a build",
+            skipWorkInProgressMergeRequest: true,
+            ciSkip: true,
+            setBuildDescription: true,
+            addNoteOnMergeRequest: true,
+            addCiMessage: true,
+            addVoteOnMergeRequest: true,
+            acceptMergeRequestOnSuccess: false,
+            branchFilterType: "NameBasedFilter",
+            includeBranchesSpec: "master",
+            excludeBranchesSpec: "",
+            pendingBuildName: "Jenkins",
+            cancelPendingBuildsOnUpdate: false
+        )
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                script {
+                    // clear workspace
+                    cleanWs()
+                    updateGitlabCommitStatus name: 'Jenkins', state: 'running'
+                    checkout(
+                        changelog: true,
+                        poll: true,
+                        scm: [
+                            $class: 'GitSCM',
+                            branches: [[name: '${gitlabSourceBranch}']],
+                            doGenerateSubmoduleConfigurations: false,
+                            extensions: [
+                                [$class: 'RelativeTargetDirectory', relativeTargetDir: 'module'],
+                                [$class: 'LocalBranch', localBranch: '${gitlabSourceBranch}']
+                            ],
+                            submoduleCfg: [],
+                            userRemoteConfigs: [
+                                [credentialsId: 'git_ssh', url: gitlabSourceRepoUrl]
+                            ]
+                        ]
+                    )
+                    checkout(
+                        changelog: true,
+                        poll: true,
+                        scm: [
+                            $class: 'GitSCM',
+                            branches: [[name: 'master']],
+                            doGenerateSubmoduleConfigurations: false,
+                            extensions: [
+                                [$class: 'RelativeTargetDirectory', relativeTargetDir: 'configRepo'],
+                                [$class: 'LocalBranch', localBranch: 'master']
+                            ],
+                            userRemoteConfigs: [
+                                [credentialsId: 'git_ssh', refspec: "+refs/heads/master:refs/remotes/origin/master", url: "git@code.devops.fds.com:scm/ci/commonutils.git" ]
+                            ]
+                        ]
+                    )
+                    if(!env.application) env.application = gitlabSourceRepoName
+                    dir('module'){
+                        env.GIT_COMMIT_APP = sh(returnStdout: true, script: "git log -n 1 --pretty=format:'%h'").trim()
+                        env.GIT_COMMITS = sh (
+                                script: "git log --pretty=format:%H origin/$gitlabTargetBranch..$gitlabMergeRequestLastCommit | tr '\n' ','",
+                                returnStdout: true
+                            ).trim()
+                            echo "MR changes in :  ${GIT_COMMITS}"
+                    }
+                }
+            }
+        }
+
+        stage('Output Parameters') {
+            steps {
+                script {
+                    println ("gitlabSourceBranch: " + "${gitlabSourceBranch}" + "\n" + "gitlabSourceRepoUrl: " + "${gitlabSourceRepoUrl}" + "\n" + "gitlabSourceRepoName: " + "${gitlabSourceRepoName}" + "\n" + "gitlabSourceNamespace: " + "${gitlabSourceNamespace}" + "\n" + "Application: " + "${application}")
+
+
+                    def global_configuration_yaml = readYaml file: "configRepo/createprojectconfig.yaml"
+                    def checkmarx_scanning_yaml = readYaml file: "configRepo/configs/checkmarxScanningToggle.yaml"
+                    def quality_gate_yaml = readYaml file: "configRepo/configs/qualityGateToggle.yaml"
+                    def anchore_image_scanning_yaml = readYaml file: "configRepo/configs/anchoreImageScanningToggle.yaml"
+
+                    env.ORGANIZATION = "oms"
+                    cxs = "CHECKMARX turned_on_for_deploy: " + checkmarx_scanning_yaml.oms.turned_on_for_deploy
+                    qgy = "QUALITY_GATE turned_on_for_deploy: " + quality_gate_yaml.oms.turned_on_for_deploy
+                    ais = "ANCHORE turned_on_for_deploy: " + anchore_image_scanning_yaml.oms.turned_on_for_deploy
+
+                    println ("ORGANIZATION is " + "${ORGANIZATION}")
+
+                    print(cxs)
+                    print(qgy)
+                    print(ais)
+
+                    if (cxs.contains("${application}")) {
+                        println("${application} found in the config yaml")
+                        env.CHECKMARX_ON = "true"
+                    } else {env.CHECKMARX_ON = "false"}
+                    if (qgy.contains("${application}")) {
+                        println("${application} found in the config yaml")
+                        env.QUALITY_GATE_ON = "true"
+                    } else {env.QUALITY_GATE_ON = "false"}
+                    if (ais.contains("${application}")) {
+                        println("${application} found in the config yaml")
+                        env.ANCHORE_ON = "true"
+                    } else {env.ANCHORE_ON = "false"}
+                    println ("CHECKMARX_ON is " + "${CHECKMARX_ON}")
+                    println ("QUALITY_GATE_ON is " + "${QUALITY_GATE_ON}")
+                    println ("ANCHORE_ON is " + "${ANCHORE_ON}")
+
+                    print ("If you feel that one of these stages stages should be turned on for a particular service, you can edit them in the files in the following repo: \nURL: https://code.devops.fds.com/scm/ci/commonutils/tree/master/configs")
+                }
+            }
+        }
+
+        stage('Checkmarx Scanning') {
+            steps {
+                withMaven (
+                    maven: 'MAVEN_3.3.9',
+                    globalMavenSettingsConfig: 'DevopsGlobalMavenSettings'
+                ) {
+                    dir('module') {
+                        script {
+                            if ("${CHECKMARX_ON}" == "true") {
+                                println( "Checkmarx scanning not yet configured" )
+                            } else {
+                                println( "Checkmarx scanning is turned off for: ${application}-Deploy " )
+                                println( "It can be enbaled by adding | \"${application}\", | to the appropriate list (${ORGANIZATION}.turned_on_for_deploy[]) at the URL below: ")
+                                println( "https://code.devops.fds.com/scm/ci/commonutils/blob/master/configs/checkmarxScanningToggle.yaml")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('App Build & Sonar') {
+           steps {
+            withSonarQubeEnv('codequality8.devops.fds.com') {
+               withMaven (
+                   maven: 'MAVEN_3.3.9',
+                   globalMavenSettingsConfig: 'DevopsGlobalMavenSettings',
+                   options: [artifactsPublisher(disabled: true)]
+               ) {
+                   dir('module') {
+                       script {
+                           sh "mvn build-helper:parse-version versions:set -DnewVersion=2.\\\${parsedVersion.minorVersion}.${BUILD_NUMBER} -DgenerateBackupPoms=false"
+                           pom = readMavenPom file: 'pom.xml'
+                           env.version = pom.version
+                           env.groupid = pom.getGroupId()
+                           env.artifactid = pom.getArtifactId()
+
+                           full_namespace = gitlabSourceRepoUrl.split(":").last().split("${gitlabSourceRepoName.toLowerCase()}.git").first()
+
+                           dir('ci-scripts') {
+                                git branch: 'master', url: 'git@code.devops.fds.com:devops/dc2.0-ci-scripts.git', credentialsId: 'git_ssh'
+                           }
+
+                           withCredentials([[$class: 'FileBinding', credentialsId: 'mtech-wms-oms-nonprod-8a02bd35ad70', variable: 'MTECH_OMS_NONPROD_CREDENTIALS']]) {
+                               env.GOOGLE_APPLICATION_CREDENTIALS="$MTECH_OMS_NONPROD_CREDENTIALS"
+                               env.GOOGLE_CLOUD_PROJECT="mtech-wms-oms-nonprod"
+
+                               // sh "mvn deploy -DdeployAtEnd=true sonar:sonar -Dsonar.junit.reportPaths=target/surefire-reports -Dsonar.clover.reportPath=service/target/site/clover/clover.xml "
+                               // sh "mvn clean deploy sonar:sonar -B -e -Dsonar.branch.name=${gitlabSourceBranch} -Dsonar.gitlab.url=https://code.devops.fds.com -Dsonar.gitlab.commit_sha=${GIT_COMMITS} -Dsonar.gitlab.ref_name=${gitlabSourceBranch} -Dsonar.gitlab.project_id=${full_namespace}${gitlabSourceRepoName} -Dsonar.issuesReport.html.enable=true -Dsonar.profile=oms"
+                               sh "mvn clean deploy sonar:sonar -B -e -Dsonar.issuesReport.html.enable=true -Dsonar.profile=oms"
+                           }
+
+                           dir("service/target") {
+                               stash includes: '*.jar', name: 'jar-artifact'
+                           }
+                           dir("config/target") {
+                               stash includes: '*.tar', name: 'tar-artifact'
+                           }
+                           dir("functional-test") {
+                               stash includes: '**/*', name: 'functests-target'
+                           }
+                       }
+                   }
+               }
+             }
+           }
+        }
+
+        stage("Quality Gate") {
+            steps {
+            dir('ci-scripts') {
+                git branch: 'master', url: 'git@code.devops.fds.com:scm/CI/ci-scripts.git', credentialsId: 'git_ssh'
+                    script {
+                        if ("${QUALITY_GATE_ON}" == "true") {
+                            // sh 'python sonar/sonarThreshold.py -res ${groupid}:${artifactid}'
+                            // sh 'python sonar/sonarThreshold_sq8.py -resource ${groupid}:${artifactid} -branch master'
+                            // sh 'python sonar/sonarThreshold_sq9.py -resource ${groupid}:${artifactid} -branch master'
+                        } else {
+                            println( "Quality gate is turned off for: ${application}-Deploy " )
+                            println( "It can be enbaled by adding | \"${application}\", | to the appropriate list (${ORGANIZATION}.turned_on_for_deploy[]) at the URL below: ")
+                            println( "https://code.devops.fds.com/scm/ci/commonutils/blob/master/configs/qualityGateToggle.yaml")
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Prepare Environment') {
+            steps {
+                script {
+                    env.namespace = "${JOB_BASE_NAME}-${BUILD_NUMBER}".toLowerCase().replaceAll("[^A-Za-z0-9]", "-")
+                    env.full_namespace = gitlabSourceRepoUrl.split(":").last().split("${gitlabSourceRepoName.toLowerCase()}.git").first()
+
+                    if (!env.DOCKER_STAGE_REGISTRY) env.DOCKER_STAGE_REGISTRY = "ci-artifacts.devops.fds.com:6555"
+                    env.APP_DOCKER_IMAGE_STAGE = "${DOCKER_STAGE_REGISTRY}/deploy/${full_namespace}${application}:${version}".toLowerCase()
+                    echo "Application docker Image for testing is ${APP_DOCKER_IMAGE_STAGE}"
+
+                    if (!env.DOCKER_PROD_REGISTRY) env.DOCKER_PROD_REGISTRY = "ci-artifacts.devops.fds.com"
+                    env.APP_DOCKER_IMAGE_PROD = "${DOCKER_PROD_REGISTRY}/${full_namespace}${application}:${version}".toLowerCase()
+                    echo "Application docker Image is ${APP_DOCKER_IMAGE_PROD}"
+
+                    if (!env.SCM_GCR_REGISTRY) env.SCM_GCR_REGISTRY = "gcr.io/mtech-scm-platform"
+                    env.APP_DOCKER_IMAGE_PROD_GCR = "${SCM_GCR_REGISTRY}/${full_namespace}${application}:${version}".toLowerCase()
+                    echo "Application docker Image is ${APP_DOCKER_IMAGE_PROD_GCR}"
+
+                    env.k8s_manifests_path = "OrderPlatform/${application}"
+                    echo "K8S manifests in ${k8s_manifests_path}"
+                }
+            }
+        }
+
+        stage("Docker Build") {
+            agent {
+                label 'dc2-dockercli'
+            }
+            steps {
+                container('docker-in-docker') {
+                    dir('build-docker') {
+                        git branch: 'master', url: 'git@code.devops.fds.com:scm/CI/k8s-ci-manifests.git', credentialsId: 'git_ssh'
+
+                        dir(k8s_manifests_path) {
+                            withCredentials([[$class: 'FileBinding', credentialsId: 'scm-gcr-jenkins-mtech-scm-platform', variable: 'GOOGLE_APPLICATION_CREDENTIALS']]) {
+			    sh 'cat ${GOOGLE_APPLICATION_CREDENTIALS} | docker login -u _json_key --password-stdin https://gcr.io'
+                            unstash 'jar-artifact'
+                            
+                            //withCredentials([[$class: 'FileBinding', credentialsId: 'scm-gcr-jenkins-mtech-scm-platform', variable: 'GOOGLE_APPLICATION_CREDENTIALS']]) {
+                                sh 'docker build -t ${application}:${version} . --build-arg ARTIFACT_PATH=*${version}.jar -f Dockerfile'
+                                sh 'docker tag ${application}:${version} ${APP_DOCKER_IMAGE_STAGE}'
+                                withDockerRegistry([ credentialsId: "artifactory_deployer", url: "https://${DOCKER_STAGE_REGISTRY}"]) {
+                                    sh 'docker push ${APP_DOCKER_IMAGE_STAGE}'
+                                }
+                                sh 'docker rmi -f ${application}:${version}'
+                                sh 'docker rmi -f ${APP_DOCKER_IMAGE_STAGE}'
+                            }
+
+                            // dockerfile is needed for anchore-scanning.
+                            stash includes: 'Dockerfile', name: 'dockerfile'
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Anchore - Image Scanning') {
+            steps {
+                script {
+                  /*  if ("${ANCHORE_ON}" == "true"){
+                        unstash 'dockerfile'
+                        writeFile file: 'anchore_images', text: "${APP_DOCKER_IMAGE_STAGE} Dockerfile"
+                        anchore name: 'anchore_images', bailOnFail: false
+                        anchore engineRetries: '800' , name: 'anchore_images', bailOnFail: false
+                    } else {*/
+                        println( "Anchore image scanning is turned off for: ${application}-Deploy " )
+                        println( "It can be enbaled by adding | \"${application}\", | to the appropriate list (${ORGANIZATION}.turned_on_for_deploy[]) at the URL below: ")
+                        println( "https://code.devops.fds.com/scm/ci/commonutils/blob/master/configs/anchoreImageScanningToggle.yaml")
+                    //}
+                }
+            }
+        }
+
+        stage('App Deployment to K8S') {
+            steps {
+                dir('build-docker') {
+                    script {
+                        git branch: 'master', url: 'git@code.devops.fds.com:scm/CI/k8s-ci-manifests.git', credentialsId: 'git_ssh'
+
+                        dir(k8s_manifests_path) {
+                            def dep_yaml = readYaml file:"${application}-deployment.yaml"
+                            dep_yaml['spec']['template']['spec']['containers'].each {
+                                // For this to work, the container name in the pod must be same as the application name.
+                                if (it['name'] == application) {
+                                    it['image'] = APP_DOCKER_IMAGE_STAGE
+                                }
+                            }
+                            writeYaml file: "${application}-deployment-updated.yaml", data: dep_yaml
+                            sh "cat ${application}-deployment-updated.yaml"
+                            withCredentials([[$class: 'FileBinding', credentialsId: 'scm-platform-jenkins', variable: 'GCLOUD_API_KEY']]) {
+ 
+                                sh '''
+ 
+                                    gcloud auth activate-service-account --key-file=${GCLOUD_API_KEY}
+ 
+                                    gcloud container clusters get-credentials scm-jenkins-prod-e1 --region us-east1 --project mtech-scm-platform
+ 
+
+ 
+                                    '''
+ 
+                            }
+
+                            sh 'kubectl create namespace ${namespace}'
+
+                            withCredentials([[$class: 'FileBinding', credentialsId: 'mtech-wms-oms-nonprod-8a02bd35ad70', variable: 'MTECH_OMS_NONPROD_CREDENTIALS']]) {
+                            sh 'kubectl create secret generic spanner-and-pubsub-key --from-file=key.json=${MTECH_OMS_NONPROD_CREDENTIALS} -n ${namespace}'
+                            }
+
+                            unstash 'tar-artifact'
+                            sh 'tar -xf *-${version}.tar --strip-components=1'
+
+                            dir('config') {
+                                sh 'kubectl create configmap ${application}-config --from-file=application.properties -n ${namespace}'
+                            }
+
+                            sh 'kubectl apply -f ${application}-service.yaml -n ${namespace}'
+                            sh 'kubectl apply -f ${application}-deployment-updated.yaml -n ${namespace}'
+                            sh 'kubectl rollout status deployment ${application} -n ${namespace}'
+                        }
+                        // Set default app startup time to 90s if not provided
+                        if (!env.APP_STARTUP_TIME) env.APP_STARTUP_TIME = 90
+                        boolean waitForIP = true
+                        // Timeout after 10 mins to break infinity loop
+                        timeout(time: 5) {
+                            while (waitForIP) {
+                                sleep APP_STARTUP_TIME.toInteger()
+                                sout = sh(returnStdout: true, script: "kubectl get service ${application} -o=jsonpath='{.spec.ports[?(@.name == \"http\")].nodePort}' -n ${namespace}")
+
+                                if ( sout?.trim()) {
+                                    env.serviceNodePort = sout.trim()
+                                    waitForIP = false
+                                }
+                            }
+                        }
+
+                        if (waitForIP) {
+                            throw new AbortException("Unable to get the service nodePort in 5 minutes!!")
+                        }
+
+                        // Get IP for the host node as we have nodePort
+                        def pod_name = sh(returnStdout: true, script: "kubectl get pods -o=jsonpath='{.items[0].metadata.name}' -n ${namespace}").trim()
+                        env.host_ip_address = sh(returnStdout: true, script: "kubectl get pods ${pod_name} -o=jsonpath='{.status.hostIP}' -n ${namespace}").trim()
+
+                        env.serviceURL = "http://${host_ip_address}:${serviceNodePort}"
+                        echo "Service IP is ${host_ip_address} and port is ${serviceNodePort}, service URL is ${serviceURL}"
+                    }
+                }
+            }
+        }
+
+        stage('Verify K8S Deployment') {
+            steps {
+                script {
+                    env.running_pod_name = sh(returnStdout: true, script: "kubectl get pods -o=jsonpath='{.items[0].metadata.name}' -n ${namespace}")
+                    echo "Pod name is ${running_pod_name}"
+
+                    sh 'kubectl get events -n ${namespace}'
+
+                    // Get all containers in pod
+                    containers_running = sh(returnStdout: true, script: "kubectl get pods -n ${namespace} -o jsonpath={.items[*].spec.containers[*].name}")
+
+                    echo "Containers in the pod are ${containers_running}"
+                    // Get logs for each container in the pod
+                    containers_running.split().each {
+                        echo "Getting logs for container ${it}"
+                        sh "kubectl logs -n ${namespace} -c ${it} ${running_pod_name} > ${it}_application.log"
+                        sh "cat ${it}_application.log | grep 'Started Application in .* seconds (JVM running for .*)'"
+                        error = sh(returnStatus: true, script: "cat ${it}_application.log | grep '|ERROR|'")
+                        if (error == 0) {
+                            throw new AbortException("Error found")
+                        }
+                    }
+                }
+            }
+        }
+
+        stage("Docker Publish") {
+            agent {
+                label 'dockercli'
+            }
+            steps {
+                container('docker-in-docker') {
+                    sh 'docker pull ${APP_DOCKER_IMAGE_STAGE}'
+                    sh 'docker tag ${APP_DOCKER_IMAGE_STAGE} ${APP_DOCKER_IMAGE_PROD}'
+                    withDockerRegistry([ credentialsId: "artifactory_deployer", url: "https://${DOCKER_PROD_REGISTRY}"]) {
+                        sh 'docker push ${APP_DOCKER_IMAGE_PROD}'
+                    }
+                }
+            }
+        }
+
+        stage("GCR Publish") {
+            agent {
+                label 'dockercli'
+            }
+            steps {
+                container('docker-in-docker') {
+                    sh 'docker pull ${APP_DOCKER_IMAGE_STAGE}'
+                    sh 'docker tag ${APP_DOCKER_IMAGE_STAGE} ${APP_DOCKER_IMAGE_PROD_GCR}'
+                    withCredentials([[$class: 'FileBinding', credentialsId: 'scm-gcr-jenkins-mtech-scm-platform', variable: 'GOOGLE_APPLICATION_CREDENTIALS']]) {
+                        sh 'cat ${GOOGLE_APPLICATION_CREDENTIALS} | docker login -u _json_key --password-stdin https://gcr.io'
+                        sh 'docker push ${APP_DOCKER_IMAGE_PROD_GCR}'
+                        sh 'docker logout'
+                    }
+                    sh 'docker rmi -f ${APP_DOCKER_IMAGE_STAGE}'
+                    sh 'docker rmi -f ${APP_DOCKER_IMAGE_PROD}'
+                    sh 'docker rmi -f ${APP_DOCKER_IMAGE_PROD_GCR}'
+                }
+            }
+        }
+        stage('Git Tag') {
+            steps {
+                script {
+                    dir('module') {
+                        withCredentials([file(credentialsId: 'git_ssh_key',
+                                variable: 'secretFile')]) {
+                            sh('''
+                        eval "$(ssh-agent -s)"
+                        ssh-add "${secretFile}"
+                        git tag -a v${version} -m "Tag : ${application} v${version}"
+                        git push origin v${version}
+                        ssh-agent -k
+                        ''')
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        failure {
+            updateGitlabCommitStatus name: 'Jenkins', state: 'failed'
+        }
+        unstable {
+            updateGitlabCommitStatus name: 'Jenkins', state: 'failed'
+        }
+        success {
+            updateGitlabCommitStatus name: 'Jenkins', state: 'success'
+        }
+        always {
+            script {
+                // namespace is not created if build fails before the namespace creation step
+                if (env.namespace) {
+                    namespace_exists = sh(returnStdout: true, script: 'kubectl get namespace ${namespace} --ignore-not-found=true --no-headers').trim()
+                }
+                else {
+                    namespace_exists = false
+                }
+
+                if (namespace_exists) {
+                    try {
+                        // echo "Kubectl delete is disabled"
+                        sh 'kubectl delete namespace ${namespace}'
+                    }
+                    catch(Exception ex) {
+                        echo "Unable to delete the K8S namespace ${namespace}. Perhaps it was already deleted or was not created. Check above shell script log for more details."
+                    }
+                    archiveArtifacts artifacts: '*.log'
+                }
+            }
+        }
+    }
+}
