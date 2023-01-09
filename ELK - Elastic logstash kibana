@@ -1,0 +1,104 @@
+Sudo -i service elasticsearch stop
+
+
+• 5601 (Kibana web interface).
+• 9200 (Elasticsearch JSON interface).
+• 5044 (Logstash Beats interface, receives logs from Beats such as Filebeat – see the Forwarding logs with Filebeat section).
+
+curl -XGET 172.21.99.6:9200
+curl -XGET 172.21.99.6:5601
+
+https://172.21.99.6:5601/
+
+8200  - APM app performace management
+
+Systemctl stop elasticsearch
+
+For logs --> /var/tail -100f esdevcluster.log
+/usr/share/elasticsearch - for bin
+
+
+xpack.security.transport.ssl.enabled] to [true
+
+
+curl -XGET http://localhost:5601
+172.23.187.234
+
+
+
+elastic  - https://confluence.federated.fds/display/CAPPSPG/Elasticsearch+Installation
+
+Kibana - Install Kibana with RPM | Kibana Guide [7.13] | Elastic
+
+logstash - Installing Logstash | Logstash Reference [7.13] | Elastic
+
+
+###### ELK installation ###############
+
+Setup cloud Shell
+1.	download and install cloud sdk installer from https://cloud.google.com/sdk/docs/install
+2.	on the desktop you will have the icon googlecloudsdk click on it
+3.	Type the below command to connect to vm 
+a.	gcloud compute ssh uop-dev-es-vm --project mtech-wms-oms-nonprod --zone=us-east4-a --internal-ip
+
+General Setup 
+1.	Installed JDK 11
+2.	Set ENV Variables in /etc/profile
+3.	ELASTIC SEARCH variables using sudo sysctl -w vm.max_map_count=262144
+a.	https://stackoverflow.com/questions/42300463/elasticsearch-bootstrap-checks-failing
+
+Installations 
+1.	elasticsearch - 7.12.1
+2.	logstash - 7.12.1
+3.	kibana - 7.12
+using rpm installations. Instructions are below
+1.	https://www.elastic.co/guide/en/elasticsearch/reference/current/rpm.html
+2.	https://www.elastic.co/guide/en/logstash/current/installing-logstash.html
+3.	https://www.elastic.co/guide/en/kibana/current/rpm.html
+
+Elasticsearch
+1.	Start ES 
+a. sudo -i service elasticsearch start
+b. sudo -i service elasticsearch stop
+c. https://www.elastic.co/guide/en/elasticsearch/reference/current/rpm.html
+2.	Test ES using curl -XGET 127.0.0.1:9200
+
+Logstash
+1.	Start Logstash
+a.	sudo systemctl start logstash.service
+b.	sudo systemctl stop logstash
+c.	https://www.elastic.co/guide/en/logstash/7.12/running-logstash.html
+2.	start with config file
+a.	cd /usr/share/logstash
+b.	sudo bin/logstash -f /etc/logstash/confg.d/logstash.conf
+3.	Test Logstash using curl -XPUT -H "Content-Type:application/json" -d '{"amount":7,"qty":3}' http://localhost:8080
+
+Kibana
+1.	Start Kibana
+a.	sudo -i service kibana start
+b.	sudo -i service kibana stop
+c.	https://www.elastic.co/guide/en/kibana/current/rpm.html
+
+
+
+############  To enable Api key on the dev ELK server #################
+
+1.	Follow this link https://www.elastic.co/guide/en/elasticsearch/reference/current/security-minimal-setup.html and enable minimal security/access control to elastic stack
+a.	Under “create password for built-in users” section select “./bin/elasticsearch-setup-passwords auto” and note down the generated passwords
+b.	Log into kibana as elastic user and see if you could access kibana
+2.	Follow this link https://www.elastic.co/guide/en/elasticsearch/reference/current/security-settings.html#api-key-service-settings and update the elasticsearch.yml file
+a.	Enable just the first setting “xpack.security.authc.api_key.enabled: true”
+3.	Log into kibana as “elastic” user and navigate kibana --> Management --> Stack Management --> Security --> API Keys and check if you could create a new api key. You will be automatically redirected to dev tools section.
+4.	Execute the “create api key” API call – PFA [Create Api Key.txt].  Refer https://www.elastic.co/guide/en/elasticsearch/reference/current/security-api-create-api-key.html#security-api-create-api-key-example
+5.	Note the “id” and “api_key” and share it across to dev team and elastic team to use the api key in the respective configuration files
+6.	GET /_security/api_key is used to get the list of all api_keys generated
+
+Note : Development team can refer to https://www.elastic.co/guide/en/elasticsearch/reference/current/security-api-create-api-key.html#security-api-create-api-key-example to check on how to make rest api calls with api key, id and credentials to elasticsearch
+
+===>> Generated API key on the dev ELK server – esdevcluster Will be as below to share with developers
+
+  "id" : "gN9eiXkB7ECih8jt9Ddy",
+  "name" : "esdevcluster-apikey",
+  "api_key" : "WsVrZfjeQXGmmAaDkIZIlg"
+
+#################################################
